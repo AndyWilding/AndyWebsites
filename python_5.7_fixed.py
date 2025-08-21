@@ -28,7 +28,8 @@ import gi
 gi.require_version('ECal', '2.0')
 gi.require_version('ICalGLib', '3.0')
 gi.require_version('EDataServer', '1.2')
-from gi.repository import ECal, ICalGLib, EDataServer  # type: ignore
+gi.require_version('Gio', '2.0')
+from gi.repository import ECal, ICalGLib, EDataServer, Gio  # type: ignore
 
 try:
 	from dateutil import parser as dateutil_parser  # type: ignore
@@ -160,7 +161,8 @@ def find_source_by_name(reg: EDataServer.SourceRegistry, name: str, extension: s
 
 def connect_client(source: EDataServer.Source, kind: ECal.ClientSourceType) -> Optional[ECal.Client]:
 	try:
-		client = ECal.Client.connect_sync(source, kind, None)
+		cancellable = Gio.Cancellable.new()
+		client = ECal.Client.connect_sync(source, kind, cancellable)
 		return client
 	except Exception as e:
 		log_error(f"Failed to connect client for '{source.get_display_name()}': {e}")
@@ -212,7 +214,8 @@ def create_calendar_event(source: EDataServer.Source, client_name: str, next_ses
 	if not client:
 		return
 	try:
-		client.create_object_sync(vcal, None)
+		cancellable = Gio.Cancellable.new()
+		client.create_object_sync(vcal, cancellable)
 		log_info(f"Event created for {client_name} at {dt}")
 	except Exception as e:
 		log_error(f"Failed to create event: {e}")
@@ -224,7 +227,8 @@ def create_task(source: EDataServer.Source, summary: str) -> None:
 	if not client:
 		return
 	try:
-		client.create_object_sync(vcal, None)
+		cancellable = Gio.Cancellable.new()
+		client.create_object_sync(vcal, cancellable)
 		log_info(f"Task created: {summary}")
 	except Exception as e:
 		log_error(f"Failed to create task: {e}")
