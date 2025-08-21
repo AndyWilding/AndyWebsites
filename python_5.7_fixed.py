@@ -161,12 +161,52 @@ def find_source_by_name(reg: EDataServer.SourceRegistry, name: str, extension: s
 
 def connect_client(source: EDataServer.Source, kind: ECal.ClientSourceType) -> Optional[ECal.Client]:
 	try:
-		cancellable = Gio.Cancellable.new()
-		client = ECal.Client.connect_sync(source, kind, cancellable)
-		return client
+		# Try common GI signatures across EDS versions
+		try:
+			return ECal.Client.connect_sync(source, kind, 0)
+		except TypeError:
+			pass
+		try:
+			return ECal.Client.connect_sync(source, kind, 0, None)
+		except TypeError:
+			pass
+		try:
+			return ECal.Client.connect_sync(source, kind, 0, Gio.Cancellable.new())
+		except TypeError:
+			pass
+		# Fallbacks
+		try:
+			return ECal.Client.connect_sync(source, kind)
+		except Exception as e:
+			raise e
 	except Exception as e:
 		log_error(f"Failed to connect client for '{source.get_display_name()}': {e}")
 		return None
+
+
+def _safe_create_object(client: ECal.Client, vcal: ICalGLib.Component) -> None:
+	# Try multiple create_object_sync signatures
+	attempts = [
+		(vcal, 0, None),
+		(vcal, 0, Gio.Cancellable.new()),
+		(vcal, 0),
+		(vcal, None),
+		(vcal,),
+	]
+	last_err: Optional[Exception] = None
+	for args in attempts:
+		try:
+			client.create_object_sync(*args)
+			return
+		except TypeError as e:
+			last_err = e
+			continue
+		except Exception as e:
+			# Real runtime error from EDS
+			raise e
+	# If we exhausted signatures, raise last TypeError
+	if last_err:
+		raise last_err
 
 
 # --- iCalendar builders ---
@@ -214,8 +254,7 @@ def create_calendar_event(source: EDataServer.Source, client_name: str, next_ses
 	if not client:
 		return
 	try:
-		cancellable = Gio.Cancellable.new()
-		client.create_object_sync(vcal, cancellable)
+		_safe_create_object(client, vcal)
 		log_info(f"Event created for {client_name} at {dt}")
 	except Exception as e:
 		log_error(f"Failed to create event: {e}")
@@ -227,8 +266,7 @@ def create_task(source: EDataServer.Source, summary: str) -> None:
 	if not client:
 		return
 	try:
-		cancellable = Gio.Cancellable.new()
-		client.create_object_sync(vcal, cancellable)
+		_safe_create_object(client, vcal)
 		log_info(f"Task created: {summary}")
 	except Exception as e:
 		log_error(f"Failed to create task: {e}")
