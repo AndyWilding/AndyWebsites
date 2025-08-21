@@ -57,6 +57,15 @@ def log_warn(msg: str) -> None:
 	print(f"[WARN] {msg}")
 
 
+def ical_escape(text: str) -> str:
+	"""Escape text for iCalendar (RFC 5545 minimal set)."""
+	return (
+		text.replace("\\", "\\\\")
+			.replace("\n", "\\n")
+			.replace(",", "\\,")
+			.replace(";", "\\;")
+	)
+
 # --- ODS reading ---
 
 def read_ods_rows(path: str) -> List[List[str]]:
@@ -161,31 +170,34 @@ def connect_client(source: EDataServer.Source, kind: ECal.ClientSourceType) -> O
 # --- iCalendar builders ---
 
 def build_vcalendar_with_vevent(summary: str, start_dt: datetime, duration: timedelta) -> ICalGLib.Component:
-	start_local = ICalGLib.Time.from_string(start_dt.strftime("%Y%m%dT%H%M%S"))
+	dtstart = start_dt.strftime("%Y%m%dT%H%M%S")
 	end_dt = start_dt + duration
-	end_local = ICalGLib.Time.from_string(end_dt.strftime("%Y%m%dT%H%M%S"))
-
-	vevent = ICalGLib.Component.new(ICalGLib.ComponentKind.VEVENT_COMPONENT)
-	vevent.add_property(ICalGLib.Property.new_summary(summary))
-	vevent.add_property(ICalGLib.Property.new_dtstart(start_local))
-	vevent.add_property(ICalGLib.Property.new_dtend(end_local))
-
-	vcal = ICalGLib.Component.new(ICalGLib.ComponentKind.VCALENDAR_COMPONENT)
-	vcal.add_property(ICalGLib.Property.new_version("2.0"))
-	vcal.add_property(ICalGLib.Property.new_prodid("-//ClientSync//python_5.7_fixed//EN"))
-	vcal.add_component(vevent)
-	return vcal
+	dtend = end_dt.strftime("%Y%m%dT%H%M%S")
+	ics = (
+		"BEGIN:VCALENDAR\r\n"
+		"VERSION:2.0\r\n"
+		"PRODID:-//ClientSync//python_5.7_fixed//EN\r\n"
+		"BEGIN:VEVENT\r\n"
+		f"SUMMARY:{ical_escape(summary)}\r\n"
+		f"DTSTART:{dtstart}\r\n"
+		f"DTEND:{dtend}\r\n"
+		"END:VEVENT\r\n"
+		"END:VCALENDAR\r\n"
+	)
+	return ICalGLib.Component.new_from_string(ics)
 
 
 def build_vcalendar_with_vtodo(summary: str) -> ICalGLib.Component:
-	vtodo = ICalGLib.Component.new(ICalGLib.ComponentKind.VTODO_COMPONENT)
-	vtodo.add_property(ICalGLib.Property.new_summary(summary))
-
-	vcal = ICalGLib.Component.new(ICalGLib.ComponentKind.VCALENDAR_COMPONENT)
-	vcal.add_property(ICalGLib.Property.new_version("2.0"))
-	vcal.add_property(ICalGLib.Property.new_prodid("-//ClientSync//python_5.7_fixed//EN"))
-	vcal.add_component(vtodo)
-	return vcal
+	ics = (
+		"BEGIN:VCALENDAR\r\n"
+		"VERSION:2.0\r\n"
+		"PRODID:-//ClientSync//python_5.7_fixed//EN\r\n"
+		"BEGIN:VTODO\r\n"
+		f"SUMMARY:{ical_escape(summary)}\r\n"
+		"END:VTODO\r\n"
+		"END:VCALENDAR\r\n"
+	)
+	return ICalGLib.Component.new_from_string(ics)
 
 
 # --- Evolution create helpers ---
