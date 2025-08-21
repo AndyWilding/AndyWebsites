@@ -20,8 +20,9 @@ Optional (pip):
 
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional, Tuple
+import uuid
 
 import gi
 
@@ -66,6 +67,17 @@ def ical_escape(text: str) -> str:
 			.replace(",", "\\,")
 			.replace(";", "\\;")
 	)
+
+
+def format_dt_as_utc_ical(dt: datetime) -> str:
+	"""Format a datetime as UTC in iCal DATE-TIME form: YYYYMMDDTHHMMSSZ.
+	If naive, assume local time and convert to UTC.
+	"""
+	if dt.tzinfo is None:
+		local_tz = datetime.now().astimezone().tzinfo
+		dt = dt.replace(tzinfo=local_tz)
+	dt_utc = dt.astimezone(timezone.utc)
+	return dt_utc.strftime("%Y%m%dT%H%M%SZ")
 
 # --- ODS reading ---
 
@@ -209,35 +221,34 @@ def _safe_create_object(client: ECal.Client, vcal: ICalGLib.Component) -> None:
 		raise last_err
 
 
-# --- iCalendar builders ---
+# --- iCalendar builders (bare components) ---
 
-def build_vcalendar_with_vevent(summary: str, start_dt: datetime, duration: timedelta) -> ICalGLib.Component:
-	dtstart = start_dt.strftime("%Y%m%dT%H%M%S")
-	end_dt = start_dt + duration
-	dtend = end_dt.strftime("%Y%m%dT%H%M%S")
+def build_vevent_component(summary: str, start_dt: datetime, duration: timedelta) -> ICalGLib.Component:
+	uid = str(uuid.uuid4())
+	dtstamp = format_dt_as_utc_ical(datetime.now())
+	dtstart = format_dt_as_utc_ical(start_dt)
+	dtend = format_dt_as_utc_ical(start_dt + duration)
 	ics = (
-		"BEGIN:VCALENDAR\r\n"
-		"VERSION:2.0\r\n"
-		"PRODID:-//ClientSync//python_5.7_fixed//EN\r\n"
 		"BEGIN:VEVENT\r\n"
+		f"UID:{uid}\r\n"
+		f"DTSTAMP:{dtstamp}\r\n"
 		f"SUMMARY:{ical_escape(summary)}\r\n"
 		f"DTSTART:{dtstart}\r\n"
 		f"DTEND:{dtend}\r\n"
 		"END:VEVENT\r\n"
-		"END:VCALENDAR\r\n"
 	)
 	return ICalGLib.Component.new_from_string(ics)
 
 
-def build_vcalendar_with_vtodo(summary: str) -> ICalGLib.Component:
+def build_vtodo_component(summary: str) -> ICalGLib.Component:
+	uid = str(uuid.uuid4())
+	dtstamp = format_dt_as_utc_ical(datetime.now())
 	ics = (
-		"BEGIN:VCALENDAR\r\n"
-		"VERSION:2.0\r\n"
-		"PRODID:-//ClientSync//python_5.7_fixed//EN\r\n"
 		"BEGIN:VTODO\r\n"
+		f"UID:{uid}\r\n"
+		f"DTSTAMP:{dtstamp}\r\n"
 		f"SUMMARY:{ical_escape(summary)}\r\n"
 		"END:VTODO\r\n"
-		"END:VCALENDAR\r\n"
 	)
 	return ICalGLib.Component.new_from_string(ics)
 
@@ -249,24 +260,24 @@ def create_calendar_event(source: EDataServer.Source, client_name: str, next_ses
 	if not dt:
 		log_warn(f"Skip event. Unparsable Next Session: '{next_session_text}'")
 		return
-	vcal = build_vcalendar_with_vevent(summary=client_name, start_dt=dt, duration=timedelta(hours=1))
+	vevent = build_vevent_component(summary=client_name, start_dt=dt, duration=timedelta(hours=1))
 	client = connect_client(source, ECal.ClientSourceType.EVENTS)
 	if not client:
 		return
 	try:
-		_safe_create_object(client, vcal)
+		_safe_create_object(client, vevent)
 		log_info(f"Event created for {client_name} at {dt}")
 	except Exception as e:
 		log_error(f"Failed to create event: {e}")
 
 
 def create_task(source: EDataServer.Source, summary: str) -> None:
-	vcal = build_vcalendar_with_vtodo(summary)
+	vtodo = build_vtodo_component(summary)
 	client = connect_client(source, ECal.ClientSourceType.TASKS)
 	if not client:
 		return
 	try:
-		_safe_create_object(client, vcal)
+		_safe_create_object(client, vtodo)
 		log_info(f"Task created: {summary}")
 	except Exception as e:
 		log_error(f"Failed to create task: {e}")
